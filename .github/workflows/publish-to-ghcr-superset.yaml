@@ -1,0 +1,22 @@
+name: Publish superset to GitHub Container Repository
+on:
+  push:
+    branches:
+      - master
+  schedule:
+    - cron: '0 2 * * 0' # Weekly on Sundays at 02:00
+jobs:
+  build:
+    env:
+      DOCKER_IMAGE: superset
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@master
+    - name: Publish to Registry
+      uses: elgohr/Publish-Docker-Github-Action@master
+      with:
+        name: docker.pkg.github.com/${{ github.repository }}/${{ env.DOCKER_IMAGE }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+        registry: docker.pkg.github.com
+        dockerfile: ${{ env.DOCKER_IMAGE }}.superset
