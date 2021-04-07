@@ -1,4 +1,4 @@
-name: Publish superset to GitHub Container Repository
+name: Publish custom Docker images to GitHub Container Repository
 on:
   push:
     branches:
@@ -7,16 +7,17 @@ on:
     - cron: '0 2 * * 0' # Weekly on Sundays at 02:00
 jobs:
   build:
-    env:
-      DOCKER_IMAGE: superset
+    strategy:
+      matrix:
+        DOCKER_IMAGE: [superset-oauth] # Array: [superset,superset-oauth]
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@master
     - name: Publish to Registry
       uses: elgohr/Publish-Docker-Github-Action@master
       with:
-        name: ghcr.io/${{ github.repository_owner }}/${{ env.DOCKER_IMAGE }}
+        name: ghcr.io/${{ github.repository_owner }}/${{ matrix.DOCKER_IMAGE }}
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
         registry: ghcr.io
-        dockerfile: Dockerfile.${{ env.DOCKER_IMAGE }}
+        dockerfile: Dockerfile.${{ matrix.DOCKER_IMAGE }}
