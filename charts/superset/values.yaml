@@ -21,11 +21,19 @@
 
 replicaCount: 1
 
-## These requirements are used to build a requirements file which is then applied on init
-## of superset containers
-additionalRequirements:
-  - "psycopg2==2.8.5"
-  - "redis==3.2.1"
+# User ID directive. This user must have enough permissions to run the bootstrap script
+# Runn containers as root is not recommended in production. Change this to another UID - e.g. 1000 to be more secure
+runAsUser: 0
+
+# Install additional packages and do any other bootstrap configuration in this script
+# For production clusters it's recommended to build own image with this step done in CI
+bootstrapScript: |
+  #!/bin/bash
+  apt-get update -y &&\
+   apt-get install -y --no-install-recommends nano &&\
+   rm -rf /var/lib/apt/lists/*
+  pip install psycopg2==2.8.5 redis==3.2.1
+  if [ ! -f ~/bootstrap ]; then echo "Running Superset with uid {{ .Values.runAsUser }}" > ~/bootstrap; fi
 
 ## The name of the secret which we will use to generate a superset_config.py file
 ## Note: this secret must have the key superset_config.py in it and can include other files as well
@@ -40,8 +48,6 @@ envFromSecret: '{{ template "superset.fullname" . }}-env'
 ## Extra environment variables that will be passed into pods
 ##
 extraEnv: {}
-  # OAUTH_HOME_DOMAIN: ..
-  # OAUTH_WHITELIST_REGEX: ...
 
 ## Extra environment variables to pass as secrets
 ##
@@ -63,6 +69,10 @@ extraConfigs: {}
   #       sqlalchemy_uri: example://example-db.local
   #       tables: []
 
+
+extraSecrets: {}
+
+
 # A dictionary of overrides to append at the end of superset_config.py - the name does not matter
 # WARNING: the order is not guaranteed
 configOverrides: {}
@@ -73,7 +83,6 @@ configOverrides: {}
   #   OAUTH_PROVIDERS = [
   #       {
   #           "name": "google",
-  #           "whitelist": [ os.getenv("OAUTH_WHITELIST_REGEX", "") ],
   #           "icon": "fa-google",
   #           "token_key": "access_token",
   #           "remote_app": {
@@ -84,20 +93,9 @@ configOverrides: {}
   #               "request_token_url": None,
   #               "access_token_url": "https://accounts.google.com/o/oauth2/token",
   #               "authorize_url": "https://accounts.google.com/o/oauth2/auth",
-  #               "authorize_params": {"hd": os.getenv("OAUTH_HOME_DOMAIN", "")}
-  #           }
+  #           },
   #       }
   #   ]
-    
-  #   # Map Authlib roles to superset roles
-  #   AUTH_ROLE_ADMIN = 'Admin'
-  #   AUTH_ROLE_PUBLIC = 'Public'
-
-  #   # Will allow user self registration, allowing to create Flask users from Authorized User
-  #   AUTH_USER_REGISTRATION = True
-
-  #   # The default user self registration role
-  #   AUTH_USER_REGISTRATION_ROLE = "Admin"
 
 configMountPath: "/app/pythonpath"
 
@@ -116,17 +114,17 @@ service:
   loadBalancerIP: null
 
 ingress:
-  enabled: true
-  annotations: 
-    kubernetes.io/ingress.class: nginx
-    #cert-manager.io/cluster-issuer: "letsencrypt-staging"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  enabled: false
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
   path: /
   hosts:
-    - superset.gke01.divx.dev
-  tls:
-    - secretName: gke01-divx-dev-prod
-
+    - chart-example.local
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local
 
 resources: {}
   # We usually recommend not to specify default resources and to leave this as a conscious
@@ -204,12 +202,28 @@ supersetCeleryBeat:
 ##
 ## Init job configuration
 init:
+  # Configure resources
+  # Warning: fab commant consumes a lot of ram and can
+  # cause the process to be killed due to OOM if it exceeds limit
+  resources: {}
+    # limits:
+    #   cpu:
+    #   memory:
+    # requests:
+    #   cpu:
+    #   memory:
   command:
     - "/bin/sh"
     - "-c"
     - ". {{ .Values.configMountPath }}/superset_bootstrap.sh; . {{ .Values.configMountPath }}/superset_init.sh"
   enabled: true
   loadExamples: false
+  adminUser:
+    username: admin
+    firstname: Superset
+    lastname: Admin
+    email: admin@superset.com
+    password: admin
   initContainers:
     - name: wait-for-postgres
       image: busybox:latest
@@ -226,11 +240,12 @@ init:
     superset init
     echo "Creating admin user..."
     superset fab create-admin \
-                    --username admin \
-                      --firstname Superset \
-                      --lastname Admin \
-                      --email admin@superset.com \
-                      --password admin || true
+                    --username {{ .Values.init.adminUser.username }} \
+                    --firstname {{ .Values.init.adminUser.firstname }} \
+                    --lastname {{ .Values.init.adminUser.lastname }} \
+                    --email {{ .Values.init.adminUser.email }} \
+                    --password {{ .Values.init.adminUser.password }} \
+                    || true
     {{ if .Values.init.loadExamples }}
     echo "Loading examples..."
     superset load_examples
